@@ -1,0 +1,54 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+  # Allow manual runs from the Actions tab
+  workflow_dispatch:
+
+# Grant the GITHUB_TOKEN permission to push to the gh-pages branch
+permissions:
+  contents: write
+
+jobs:
+  build-and-deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build production bundle
+        run: npm run build
+        env:
+          VITE_SITE_URL: https://deltav.robertvelardejr.com
+          VITE_APP_TITLE: Kerbol System ΔV Map
+
+      # The CNAME file in public/ is copied into dist/ by Vite automatically.
+      # This step is a safety check to confirm it landed correctly.
+      - name: Verify CNAME is present in dist
+        run: |
+          if [ ! -f dist/CNAME ]; then
+            echo "ERROR: dist/CNAME is missing. Add a CNAME file to public/." >&2
+            exit 1
+          fi
+          echo "CNAME OK: $(cat dist/CNAME)"
+
+      - name: Deploy to gh-pages branch
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          # Keep the CNAME in place so GitHub Pages does not clear the custom domain
+          cname: deltav.robertvelardejr.com

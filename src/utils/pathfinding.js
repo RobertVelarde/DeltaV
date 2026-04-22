@@ -1,9 +1,33 @@
-// Dijkstra's algorithm for finding optimal delta-v paths
-import { buildGraph, parseNodeId, getNodeLabel, edges as allEdges } from '../data/systemData';
+/**
+ * Dijkstra's algorithm — generic weighted shortest-path implementation.
+ *
+ * The algorithm operates on a plain adjacency-list graph (see the Graph typedef
+ * below) and has no knowledge of KSP bodies, node types, or delta-v semantics.
+ * That separation means the same function can be reused for any future system
+ * dataset (Sol, Outer Planets Mod, etc.) by simply passing a different graph.
+ *
+ * Time complexity: O((V + E) log V) with a binary heap; this implementation
+ * uses Array#sort as a simple priority queue, which is O(E log E) — acceptable
+ * for the small graphs used here (<100 nodes).
+ */
+import { buildGraph, getNodeLabel } from '../data/systemData';
 
-export function dijkstra(startNode, endNode) {
-  const graph = buildGraph();
+/**
+ * @typedef {{ node: string, deltaV: number, aerobrake?: boolean, planeChange?: boolean, label?: string }} GraphEdge
+ * @typedef {{ [nodeId: string]: GraphEdge[] }} Graph
+ */
 
+/**
+ * Finds the minimum delta-v path between two nodes using Dijkstra's algorithm.
+ *
+ * @param {string} startNode  - Origin node ID (e.g. 'kerbin:SURFACE')
+ * @param {string} endNode    - Destination node ID
+ * @param {Graph}  [graph]    - Adjacency list to search; defaults to the full
+ *                              Kerbol system graph so callers need not build it.
+ * @returns {{ path: string[], legs: object[], totalDeltaV: number, totalPlaneChange: number } | null}
+ *   Returns null if no path exists between the two nodes.
+ */
+export function dijkstra(startNode, endNode, graph = buildGraph()) {
   if (!graph[startNode] || !graph[endNode]) {
     return null;
   }
@@ -71,7 +95,7 @@ export function dijkstra(startNode, endNode) {
       toLabel: getNodeLabel(to),
       deltaV: edge.deltaV,
       aerobrake: edge.aerobrake,
-      planeChange: edge.planeChange,
+      planeChange: edge.planeChange === null ? 0 : edge.planeChange,
       label: edge.label,
     });
   }
@@ -80,22 +104,21 @@ export function dijkstra(startNode, endNode) {
     path,
     legs,
     totalDeltaV: distances[endNode],
+    totalPlaneChange: legs.reduce((sum, leg) => sum + (leg.planeChange || 0), 0),
   };
 }
 
-// Get all edge IDs that are part of a path
+// Get all edge IDs that are part of a path, in traversal direction (directed).
 export function getPathEdgeIds(path) {
   if (!path) return new Set();
   const edgeIds = new Set();
   for (let i = 0; i < path.length - 1; i++) {
-    // Edge ID is sorted pair
-    const a = path[i];
-    const b = path[i + 1];
-    edgeIds.add(a < b ? `${a}|${b}` : `${b}|${a}`);
+    edgeIds.add(`${path[i]}|${path[i + 1]}`);
   }
   return edgeIds;
 }
 
+// Returns a directed edge ID: "from|to" in the order given.
 export function edgeId(from, to) {
-  return from < to ? `${from}|${to}` : `${to}|${from}`;
+  return `${from}|${to}`;
 }

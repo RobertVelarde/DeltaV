@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Doto:wght@400;700&display=swap');
 @import "tailwindcss";
 
 @theme {
@@ -33,7 +35,7 @@
 body {
   background: #0a0e17;
   color: #e5e7eb;
-  font-family: 'Courier New', 'Consolas', monospace;
+  font-family: 'Space Mono', 'Courier New', 'Consolas', monospace;
   overflow: hidden;
   height: 100vh;
   width: 100vw;
@@ -43,4 +45,31 @@ body {
   height: 100vh;
   width: 100vw;
   overflow: hidden;
+}
+
+/* ── CRT effect keyframes ──────────────────────────────────────────────────── */
+
+/* Subtle brightness flicker */
+@keyframes crt-flicker {
+  0%   { opacity: 1; }
+  5%   { opacity: 0.097; }
+  10%  { opacity: 1; }
+  47%  { opacity: 0.0995; }
+  50%  { opacity: 0.97; }
+  53%  { opacity: 1; }
+  80%  { opacity: 0.099; }
+  85%  { opacity: 0.096; }
+  90%  { opacity: 1; }
+  100% { opacity: 1; }
+}
+
+/* Animated film grain — just pan the turbulence texture */
+@keyframes crt-grain {
+  0%   { transform: translate(0, 0); }
+  10%  { transform: translate(-5%, -5%); }
+  30%  { transform: translate(3%, -3%); }
+  50%  { transform: translate(-2%, 5%); }
+  70%  { transform: translate(4%, 2%); }
+  90%  { transform: translate(-4%, 4%); }
+  100% { transform: translate(0, 0); }
 }

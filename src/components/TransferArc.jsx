@@ -1,7 +1,40 @@
 import { useMemo } from 'react';
+import { COLORS, STROKES, FONT } from '../utils/theme';
 
-// Renders a curved transfer arc between two nodes
-export default function TransferArc({ from, to, deltaV, aerobrake, planeChange, label, isOnPath, scale }) {
+/**
+ * TransferArc — renders a single delta-v edge between two SVG positions.
+ *
+ * Arc geometry — quadratic Bézier curve
+ * ──────────────────────────────────────
+ * A quadratic Bézier B(t) = (1-t)²·P0 + 2(1-t)t·CP + t²·P1
+ *
+ * The control point CP is placed perpendicular to the chord P0→P1 at its
+ * midpoint, offset by `curvature` units along the normal:
+ *
+ *   chord midpoint M  = (P0 + P1) / 2
+ *   unit normal n̂    = (-dy, dx) / |P0P1|    (perpendicular, rotated 90°)
+ *   CP               = M + n̂ · curvature
+ *
+ * The visual midpoint of the rendered arc (where the label sits) is the
+ * Bézier point at t = 0.5:
+ *
+ *   B(0.5) = 0.25·P0 + 0.5·CP + 0.25·P1
+ *
+ * `curvature` is scaled with arc length so short local hops stay tight while
+ * long interplanetary transfers sweep elegantly.  It is currently set to 0
+ * (straight line) while the subway-style ellipse arcs handle visual routing;
+ * un-commenting the curvature logic restores curved arcs if desired.
+ *
+ * @param {{ x: number, y: number }} from   - SVG start position
+ * @param {{ x: number, y: number }} to     - SVG end position
+ * @param {number}  deltaV                  - Manoeuvre cost in m/s
+ * @param {boolean} [aerobrake]             - Render as dashed (aerobraking)
+ * @param {boolean} [planeChange]           - Show plane-change triangle icon
+ * @param {string}  [label]                 - Human-readable manoeuvre label
+ * @param {boolean} isOnPath                - Whether this arc is on the active route
+ * @param {number}  scale                   - Current SVG viewport scale (for font sizing)
+ */
+export default function TransferArc({ from, to, deltaV, aerobrake, planeChange, isOnPath, scale }) {
   const { path, midpoint } = useMemo(() => {
     const dx = to.x - from.x;
     const dy = to.y - from.y;
@@ -18,18 +51,9 @@ export default function TransferArc({ from, to, deltaV, aerobrake, planeChange, 
     const nx = -dy / dist;
     const ny = dx / dist;
 
-    // Scale curvature with distance - larger arcs for interplanetary transfers
-    let curvature;
-    if (dist > 200) {
-      // Long interplanetary arcs - large elegant curves above the ecliptic
-      curvature = dist * 0.25;
-    } else if (dist > 80) {
-      // Medium transfers
-      curvature = dist * 0.2;
-    } else {
-      // Short local transfers (surface to orbit, etc.)
-      curvature = Math.max(10, dist * 0.3);
-    }
+    // Curvature is currently 0 (straight lines); un-comment the block below
+    // to restore Bézier curves scaled by transfer distance.
+    const curvature = 0;
 
     const cx = (from.x + to.x) / 2 + nx * curvature;
     const cy = (from.y + to.y) / 2 + ny * curvature;
@@ -44,27 +68,16 @@ export default function TransferArc({ from, to, deltaV, aerobrake, planeChange, 
     };
   }, [from, to]);
 
-  const baseColor = isOnPath ? '#00ffff' : '#2a3448';
-  const labelColor = isOnPath ? '#00ffff' : '#4b5563';
-  const strokeWidth = isOnPath ? 2.5 : 0.7;
-  const opacity = isOnPath ? 1 : 0.6;
+  const baseColor   = isOnPath ? COLORS.arcPath    : COLORS.arcDefault;
+  const labelColor  = isOnPath ? COLORS.arcPath    : COLORS.panelTextDim;
+  const strokeWidth = isOnPath ? STROKES.arcPath   : STROKES.arcDefault;
+  const opacity     = isOnPath ? 1 : 0;
 
   const showLabel = scale > 0.5;
   const fontSize = Math.max(6, Math.min(8, 8 / scale));
 
   return (
     <g>
-      {/* Glow underlay for path arcs */}
-      {isOnPath && (
-        <path
-          d={path}
-          fill="none"
-          stroke="#00ffff"
-          strokeWidth={5}
-          strokeDasharray={aerobrake ? '6,4' : 'none'}
-          opacity={0.15}
-        />
-      )}
 
       {/* Main arc */}
       <path
@@ -95,7 +108,7 @@ export default function TransferArc({ from, to, deltaV, aerobrake, planeChange, 
             textAnchor="middle"
             fill={labelColor}
             fontSize={fontSize}
-            fontFamily="'Courier New', monospace"
+            fontFamily={FONT.mono}
             fontWeight={isOnPath ? 'bold' : 'normal'}
           >
             {deltaV} m/s
@@ -103,14 +116,14 @@ export default function TransferArc({ from, to, deltaV, aerobrake, planeChange, 
         </g>
       )}
 
-      {/* Plane change indicator (SVG triangle) */}
+      {/* Plane change indicator (triangle) */}
       {planeChange && showLabel && (
         <g transform={`translate(${midpoint.x + 28}, ${midpoint.y - 3})`}
           style={{ pointerEvents: 'none' }}>
           <path
             d="M 0 -4 L 3.46 2 L -3.46 2 Z"
             fill="none"
-            stroke="#fbbf24"
+            stroke={COLORS.planeChange}
             strokeWidth="1.2"
           />
         </g>

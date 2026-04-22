@@ -1,4 +1,25 @@
-// Layout engine: planets on X-axis, moons stacked vertically on concentric rings
+/**
+ * Layout engine — "Orbital-Subway" coordinate model
+ *
+ * Planets are arranged left-to-right along the ecliptic line, spaced so that
+ * no two planet SOI circles ever overlap:
+ *
+ *   currentX += soiRadius(prev) + PLANET_GAP_MIN + soiRadius(next)
+ *
+ * Moons are stacked vertically above their parent on concentric rings:
+ *
+ *   moonY = parentY - (MOON_ORBIT_BASE + moonIndex * MOON_ORBIT_STEP)
+ *
+ * This gives the map its distinctive "subway stop" aesthetic while preserving
+ * the correct inner→outer ordering from left-to-right / bottom-to-top.
+ *
+ * Departure ellipses (LKO escape, Jool capture, etc.) are vertical ellipses
+ * whose periapsis sits at the low-orbit ring and whose apoapsis aligns with
+ * the SOI intercept diamond.  Their geometry is derived in computeLayout().
+ *
+ * Hohmann transfer arcs (planet LO → moon SOI) use a similar vertical ellipse
+ * whose semi-major axis spans from the planet's LO ring to the moon orbit ring.
+ */
 import { bodies, planetOrder, NODE_TYPES, nodeId } from '../data/systemData';
 
 const ECLIPTIC_Y = 450;
@@ -32,6 +53,7 @@ export function computeLayout() {
   const moonOrbitRings = [];  // [{ parentId, moonId, cx, cy, r }]
   const soiCircles = {};      // bodyId -> { cx, cy, r }
   const ellipticalOrbits = {}; // bodyId -> { cx, cy, rx, ry }
+  const hohmannTransfers = {}; // bodyId -> { cx, cy, rx, ry }
 
   // Position Kerbol
   bodyPositions.kerbol = { x: KERBOL_X, y: ECLIPTIC_Y };
@@ -60,21 +82,29 @@ export function computeLayout() {
     positions[nodeId(planetId, NODE_TYPES.LOW_ORBIT)] = { x, y };
     // Planet SOI_INTERCEPT: at the bottom of the SOI circle
     positions[nodeId(planetId, NODE_TYPES.SOI_INTERCEPT)] = { x, y: y + pSoiR };
+    positions[nodeId(planetId, NODE_TYPES.ELLIPTICAL_ORBIT)] = { x, y: y + pSoiR };
 
     // SOI circle for this planet
     soiCircles[planetId] = { cx: x, cy: y, r: pSoiR };
 
-    // Optional vertical elliptical orbit from Low Orbit to SOI edge
-    // Periapsis at low-orbit radius, apoapsis at SOI edge; center placed
-    // below the planet so the bottom-most point (apoapsis) aligns with SOI marker.
-    if (ELLIPTICAL_PLANETS.has(planetId)) {
-      const loR = getLowOrbitRadius(planetId);
-      const ry = (pSoiR + loR) / 2;
-      const cyEll = y + (pSoiR - loR) / 2;
-      // horizontal radius: keep it proportional to low-orbit so ellipse looks tall
-      const rx = ry / 2;
-      ellipticalOrbits[planetId] = { cx: x, cy: cyEll, rx, ry };
-    }
+    // Departure / arrival ellipse geometry (Low Orbit ↔ SOI intercept)
+    //
+    // We model the Hohmann escape burn as a vertical ellipse:
+    //   - Periapsis (top of ellipse)  : the low-orbit ring radius (loR) above center
+    //   - Apoapsis  (bottom of ellipse): the SOI display radius (pSoiR) below center
+    //
+    // Semi-major axis ry and center offset:
+    //   ry     = (pSoiR + loR) / 2          — half the span between periapsis and apoapsis
+    //   cyEll  = y + (pSoiR - loR) / 2      — shift center down so apoapsis == SOI marker y
+    //
+    // Semi-minor axis rx is kept proportional to loR so the ellipse looks tall
+    // rather than circular:
+    //   rx = loR + (ry - loR) / 2
+    const loR = getLowOrbitRadius(planetId);
+    const ry = (pSoiR + loR) / 2;
+    const cyEll = y + (pSoiR - loR) / 2;
+    const rx = loR + (ry - loR) / 2;
+    ellipticalOrbits[planetId] = { cx: x, cy: cyEll, rx, ry };
 
     // Position moons: sorted by semiMajorAxis, stacked vertically above parent
     const body = bodies[planetId];
@@ -94,20 +124,43 @@ export function computeLayout() {
         positions[nodeId(moonId, NODE_TYPES.SURFACE)] = { x: mx, y: my };
         positions[nodeId(moonId, NODE_TYPES.LOW_ORBIT)] = { x: mx, y: my };
 
-        // Moon SOI_INTERCEPT: at the bottom of the moon's SOI (toward parent)
+        // Moon SOI_INTERCEPT: at the right of the moon's SOI (toward parent)
         const mSoiR = moonSoiDisplayR(moonId);
-        positions[nodeId(moonId, NODE_TYPES.SOI_INTERCEPT)] = { x: mx, y: my + mSoiR };
+        positions[nodeId(moonId, NODE_TYPES.SOI_INTERCEPT)] = { x: mx + mSoiR, y: my };
 
         // Moon orbit ring (concentric around parent)
         moonOrbitRings.push({ parentId: planetId, moonId, cx: x, cy: y, r: orbitR });
 
         // Moon SOI circle
         soiCircles[moonId] = { cx: mx, cy: my, r: mSoiR };
+
+
+        // Hohmann transfer ellipse geometry (planet LO → moon SOI)
+        //
+        // This vertical ellipse represents the transfer orbit from a planet's
+        // low-orbit ring up to the moon's SOI.  The geometry mirrors the
+        // departure ellipse above, but spans the moon's orbit instead of the
+        // planet's SOI:
+        //
+        //   ht_ry  = (orbitR + planetLoR + moonLoR) / 2
+        //              — semi-major axis, centre of the span
+        //   ht_rx  = planetLoR + (orbitR - planetLoR) / 4
+        //              — narrow semi-minor axis so the arc looks like an orbit
+        //   ht_y   = parentY − (ht_ry − planetLoR)
+        //              — centre shifted up so the bottom of the ellipse sits
+        //                 at the planet's LO ring level
+        const ht_ry = (orbitR + getLowOrbitRadius(planetId) + getLowOrbitRadius(moonId)) / 2;
+        const ht_rx = getLowOrbitRadius(planetId) + ((orbitR - getLowOrbitRadius(planetId)) / 4);
+        const ht_y  = y - (ht_ry - getLowOrbitRadius(planetId));
+
+        // Add ellipse to hohmannTransfers keyed as "planetId:moonId"
+        const htId = nodeId(planetId, moonId);
+        hohmannTransfers[htId] = { cx: x, cy: ht_y, rx: ht_rx, ry: ht_ry };
       });
     }
   });
 
-  return { positions, bodyPositions, moonOrbitRings, soiCircles, ellipticalOrbits };
+  return { positions, bodyPositions, moonOrbitRings, soiCircles, ellipticalOrbits, hohmannTransfers };
 }
 
 export function getBodyDisplayRadius(bodyId) {
@@ -121,3 +174,12 @@ export function getLowOrbitRadius(bodyId) {
 }
 
 export { ECLIPTIC_Y, KERBOL_X };
+
+/**
+ * Pre-computed layout for the Kerbol system.
+ *
+ * Exported as a module-level singleton so every consumer shares a single
+ * computation.  Call `computeLayout()` directly if you need a fresh layout
+ * for a different dataset (e.g., Sol system, Outer Planets Mod).
+ */
+export const layout = computeLayout();
